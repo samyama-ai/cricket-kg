@@ -2,7 +2,7 @@
 
 A knowledge graph of ball-by-ball cricket data from [Cricsheet.org](https://cricsheet.org/) — powered by [Samyama Graph Database](https://github.com/samyama-ai/samyama-graph).
 
-**21,325 matches** | **8 node types** | **12 edge types** | **Ball-by-ball granularity** | **All formats: Tests, ODIs, T20Is, IPL, BBL, CPL, PSL, The Hundred, ...**
+**21,324 matches** | **36,619 nodes** | **1.37M edges** | **12,933 players** | **Ball-by-ball granularity** | **All formats: Tests, ODIs, T20s, IPL, BBL, CPL, PSL, The Hundred, ...**
 
 ## Why a Graph?
 
@@ -47,16 +47,16 @@ Player ─[PLAYED_FOR]──────> Team ─[COMPETED_IN]──> Match ─
 
 ### Node Labels (6)
 
-| Label | Key Property | Count (500 T20s) |
+| Label | Key Property | Count |
 |---|---|---|
-| Player | cricsheet_id, name | 1,133 |
-| Match | file_id, match_type, date, winner | 500 |
-| Venue | name, city | 100 |
-| Team | name | 87 |
-| Tournament | name | 28 |
-| Season | year | 4 |
+| Player | cricsheet_id, name | 12,933 |
+| Match | file_id, match_type, date, winner | 21,324 |
+| Venue | name, city | 877 |
+| Team | name | 383 |
+| Tournament | name | 1,053 |
+| Season | year | 49 |
 
-### Edge Types (10)
+### Edge Types (12)
 
 | Edge | From → To | Properties |
 |---|---|---|
@@ -95,7 +95,7 @@ python -m etl.loader --data-dir data/json --max-matches 100
 # Load 500 T20 matches
 python -m etl.loader --data-dir data/json --max-matches 500 --match-type T20 --gender male
 
-# Load everything (21,325 matches — takes ~4-5 hours)
+# Load everything (21,324 matches — ~24 minutes)
 python -m etl.loader --data-dir data/json
 
 # Run tests
@@ -104,49 +104,51 @@ pytest tests/ -v
 
 ## Example Queries
 
-### Top T20 run scorers
+All results below are from the **full 21,324-match dataset** (all formats combined).
+
+### Top run scorers
 
 ```cypher
-MATCH (p:Player)-[b:BATTED_IN]->(m:Match {match_type: "T20"})
+MATCH (p:Player)-[b:BATTED_IN]->(m:Match)
 RETURN p.name AS player, sum(b.runs) AS runs, count(b) AS innings,
        sum(b.balls) AS balls, sum(b.fours) AS fours, sum(b.sixes) AS sixes
 ORDER BY runs DESC LIMIT 10
 ```
 
-| Player | Runs | Inn | Balls | 4s | 6s | SR |
-|---|---|---|---|---|---|---|
-| BB McCullum | 1,666 | 65 | 1,231 | 161 | 89 | 149.4 |
-| AJ Finch | 1,433 | 47 | 925 | 132 | 73 | 162.1 |
-| KA Pollard | 1,401 | 68 | 1,034 | 82 | 83 | 144.3 |
-| KC Sangakkara | 1,372 | 52 | 1,109 | 136 | 34 | 126.3 |
-| C Munro | 1,357 | 43 | 897 | 118 | 78 | 155.6 |
-| CH Gayle | 1,246 | 47 | 994 | 81 | 94 | 130.9 |
-| DR Smith | 1,151 | 44 | 948 | 124 | 47 | 125.7 |
-| CA Lynn | 1,118 | 27 | 697 | 89 | 75 | 166.1 |
-| JC Buttler | 1,066 | 37 | 788 | 86 | 43 | 139.9 |
-| HM Amla | 1,060 | 25 | 787 | 99 | 33 | 138.7 |
+| Player | Runs | Inn | Balls | 4s | 6s |
+|---|---|---|---|---|---|
+| V Kohli | 36,500 | 878 | 41,620 | 3,512 | 607 |
+| KC Sangakkara | 30,118 | 728 | 40,130 | 3,166 | 278 |
+| DA Warner | 27,903 | 740 | 28,598 | 3,032 | 613 |
+| RG Sharma | 26,691 | 795 | 27,992 | 2,537 | 937 |
+| AB de Villiers | 26,272 | 688 | 30,003 | 2,449 | 662 |
+| JE Root | 26,013 | 611 | 37,631 | 2,580 | 157 |
+| KS Williamson | 24,569 | 629 | 34,708 | 2,504 | 270 |
+| HM Amla | 22,873 | 567 | 34,412 | 2,573 | 152 |
+| JM Vince | 22,784 | 677 | 24,636 | 2,834 | 364 |
+| CH Gayle | 22,638 | 694 | 21,259 | 2,125 | 1,243 |
 
 ### Top wicket takers
 
 ```cypher
-MATCH (p:Player)-[b:BOWLED_IN]->(m:Match {match_type: "T20"})
+MATCH (p:Player)-[b:BOWLED_IN]->(m:Match)
 RETURN p.name AS player, sum(b.wickets) AS wickets,
        sum(b.runs_conceded) AS runs, count(b) AS innings
 ORDER BY wickets DESC LIMIT 10
 ```
 
-| Player | Wickets | Inn | Avg |
+| Player | Wickets | Inn | Runs |
 |---|---|---|---|
-| DJ Bravo | 76 | 53 | 21.2 |
-| Rashid Khan | 61 | 44 | 18.0 |
-| SP Narine | 61 | 64 | 26.9 |
-| CJ Jordan | 52 | 41 | 23.8 |
-| Sohail Tanvir | 51 | 40 | 21.5 |
-| AJ Tye | 51 | 29 | 17.1 |
-| Imran Tahir | 48 | 39 | 24.7 |
-| KOK Williams | 48 | 33 | 21.3 |
-| IS Sodhi | 47 | 35 | 22.9 |
-| Shadab Khan | 44 | 29 | 16.0 |
+| JM Anderson | 1,112 | 622 | 30,378 |
+| R Ashwin | 987 | 604 | 27,122 |
+| SCJ Broad | 957 | 555 | 27,857 |
+| TG Southee | 917 | 606 | 27,414 |
+| Shakib Al Hasan | 890 | 679 | 24,614 |
+| MA Starc | 882 | 476 | 23,049 |
+| TA Boult | 878 | 542 | 23,303 |
+| DW Steyn | 874 | 490 | 20,814 |
+| MJ Henry | 810 | 416 | 19,491 |
+| DJ Bravo | 808 | 671 | 22,073 |
 
 ### Dismissal network: who gets whom out?
 
@@ -157,37 +159,42 @@ RETURN bowler.name AS bowler, batsman.name AS batsman,
 ORDER BY times DESC LIMIT 10
 ```
 
-| Bowler | Batsman | Times | How |
-|---|---|---|---|
-| Wahab Riaz | SP Narine | 3 | bowled, caught |
-| Shadab Khan | MJ Guptill | 3 | caught |
-| DJ Bravo | Mohammad Nabi | 3 | bowled, caught |
-| SP Narine | Sohail Tanvir | 3 | bowled, lbw |
-| Shadab Khan | CAK Walton | 3 | bowled, caught, lbw |
-| S Badree | C Munro | 3 | bowled, caught |
-| Hasan Ali | JN Mohammed | 3 | bowled, caught |
-| DJ Bravo | DJG Sammy | 3 | bowled, caught |
-| Sohail Tanvir | N Pooran | 3 | bowled, caught |
-| N Vanua | Rohan Mustafa | 3 | bowled, caught |
+| Bowler | Batsman | Times |
+|---|---|---|
+| SCJ Broad | DA Warner | 20 |
+| R Ashwin | BA Stokes | 17 |
+| R Ashwin | DA Warner | 17 |
+| MA Starc | JM Bairstow | 17 |
+| RA Jadeja | SPD Smith | 16 |
+| PJ Cummins | JE Root | 16 |
+| Saeed Ajmal | DPMD Jayawardene | 16 |
+| K Rabada | RG Sharma | 16 |
+| MA Starc | BA Stokes | 16 |
+| ML Schutt | DN Wyatt | 15 |
 
 ### Multi-hop: Australian bowlers vs Indian batsmen
 
 ```cypher
-MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player)
-        -[:PLAYED_FOR]->(t:Team {name: "India"}),
-      (bowler)-[:PLAYED_FOR]->(bt:Team {name: "Australia"})
+MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player)-[:PLAYED_FOR]->(t:Team),
+      (bowler)-[:PLAYED_FOR]->(bt:Team)
+WHERE t.name = "India" AND bt.name = "Australia"
 RETURN bowler.name AS bowler, count(d) AS dismissals,
        collect(DISTINCT batsman.name) AS victims
 ORDER BY dismissals DESC LIMIT 10
 ```
 
-| Bowler | Dismissals | Victims |
-|---|---|---|
-| PJ Cummins | 3 | KD Karthik, Mandeep Singh, SK Raina |
-| GJ Maxwell | 3 | Mandeep Singh, RR Pant, Yuvraj Singh |
-| A Zampa | 2 | RG Sharma, RR Pant |
-| JP Faulkner | 1 | RG Sharma |
-| AJ Tye | 1 | Mandeep Singh |
+| Bowler | Dismissals |
+|---|---|
+| PJ Cummins | 124 |
+| MA Starc | 119 |
+| NM Lyon | 119 |
+| MG Johnson | 118 |
+| JR Hazlewood | 97 |
+| B Lee | 86 |
+| SR Watson | 79 |
+| A Gardner | 78 |
+| A Sutherland | 65 |
+| A Zampa | 55 |
 
 ### Most sixes
 
@@ -199,37 +206,38 @@ ORDER BY sixes DESC LIMIT 10
 
 | Player | Sixes | Runs |
 |---|---|---|
-| CH Gayle | 94 | 1,246 |
-| BB McCullum | 89 | 1,666 |
-| KA Pollard | 83 | 1,401 |
-| C Munro | 78 | 1,357 |
-| E Lewis | 76 | 924 |
-| CA Lynn | 75 | 1,118 |
-| AJ Finch | 73 | 1,433 |
-| CA Ingram | 53 | 1,021 |
-| DJG Sammy | 51 | 777 |
-| GJ Maxwell | 49 | 959 |
+| CH Gayle | 1,243 | 22,638 |
+| KA Pollard | 948 | 14,876 |
+| RG Sharma | 937 | 26,691 |
+| N Pooran | 824 | 12,621 |
+| AD Russell | 802 | 10,108 |
+| JC Buttler | 774 | 21,686 |
+| GJ Maxwell | 711 | 15,542 |
+| BB McCullum | 665 | 18,908 |
+| Q de Kock | 665 | 21,849 |
+| AB de Villiers | 662 | 26,272 |
 
 ### Top fielders (catches)
 
 ```cypher
-MATCH (fielder:Player)-[d:FIELDED_DISMISSAL {kind: "caught"}]->(batsman:Player)
+MATCH (fielder:Player)-[d:FIELDED_DISMISSAL]->(batsman:Player)
+WHERE d.kind = "caught"
 RETURN fielder.name AS fielder, count(d) AS catches
 ORDER BY catches DESC LIMIT 10
 ```
 
 | Fielder | Catches |
 |---|---|
-| KC Sangakkara | 54 |
-| KA Pollard | 43 |
-| BB McCullum | 35 |
-| AJ Finch | 29 |
-| CJ Jordan | 27 |
-| Umar Akmal | 27 |
-| SW Billings | 26 |
-| MS Dhoni | 25 |
-| DA Miller | 25 |
-| CAK Walton | 24 |
+| MS Dhoni | 752 |
+| Q de Kock | 718 |
+| JC Buttler | 656 |
+| JA Simpson | 631 |
+| AB de Villiers | 593 |
+| JM Bairstow | 565 |
+| KC Sangakkara | 559 |
+| BC Brown | 552 |
+| OB Cox | 524 |
+| BT Foakes | 512 |
 
 ### Player of match awards
 
@@ -241,16 +249,16 @@ ORDER BY awards DESC LIMIT 10
 
 | Player | Awards |
 |---|---|
-| E Lewis | 7 |
-| C Munro | 7 |
-| SR Patel | 7 |
-| Rashid Khan | 6 |
-| BB McCullum | 6 |
-| JT Smuts | 6 |
-| Mahmudullah | 5 |
-| CH Gayle | 5 |
-| DJM Short | 5 |
-| CA Ingram | 5 |
+| V Kohli | 88 |
+| AB de Villiers | 71 |
+| CH Gayle | 69 |
+| Shakib Al Hasan | 66 |
+| Q de Kock | 66 |
+| RG Sharma | 63 |
+| DA Warner | 61 |
+| SFM Devine | 59 |
+| HK Matthews | 56 |
+| SR Watson | 55 |
 
 ### Most successful teams
 
@@ -262,16 +270,16 @@ ORDER BY wins DESC LIMIT 10
 
 | Team | Wins |
 |---|---|
-| Perth Scorchers | 15 |
-| Trinbago Knight Riders | 15 |
-| Jamaica Tallawahs | 13 |
-| Adelaide Strikers | 12 |
-| Nottinghamshire | 11 |
-| Mumbai Indians | 11 |
-| Melbourne Renegades | 10 |
-| Dhaka Dynamites | 10 |
-| Rising Pune Supergiant | 10 |
-| Pakistan | 10 |
+| India | 761 |
+| Australia | 758 |
+| England | 665 |
+| South Africa | 597 |
+| Pakistan | 520 |
+| New Zealand | 506 |
+| Sri Lanka | 462 |
+| West Indies | 369 |
+| Bangladesh | 296 |
+| Ireland | 223 |
 
 ### Tournaments
 
@@ -283,14 +291,16 @@ ORDER BY matches DESC LIMIT 10
 
 | Tournament | Matches |
 |---|---|
-| NatWest T20 Blast | 121 |
-| Big Bash League | 78 |
-| Indian Premier League | 59 |
-| Caribbean Premier League | 54 |
-| Bangladesh Premier League | 45 |
-| CSA T20 Challenge | 27 |
-| Pakistan Super League | 24 |
-| Super Smash | 23 |
+| Indian Premier League | 1,164 |
+| Vitality Blast | 834 |
+| Syed Mushtaq Ali Trophy | 668 |
+| Big Bash League | 654 |
+| County Championship | 618 |
+| Royal London One-Day Cup | 582 |
+| Women's Big Bash League | 517 |
+| NatWest T20 Blast | 482 |
+| Bangladesh Premier League | 459 |
+| Specsavers County Championship | 457 |
 
 ### Top venues
 
@@ -302,30 +312,41 @@ ORDER BY matches DESC LIMIT 10
 
 | Venue | City | Matches |
 |---|---|---|
-| Shere Bangla National Stadium | Dhaka | 34 |
-| County Ground | Taunton | 28 |
-| Dubai International Cricket Stadium | — | 19 |
-| Queen's Park Oval | Trinidad | 12 |
-| Zahur Ahmed Chowdhury Stadium | Chattogram | 11 |
-| Melbourne Cricket Ground | — | 11 |
-| Adelaide Oval | — | 11 |
-| Sharjah Cricket Stadium | — | 10 |
-| Sydney Cricket Ground | — | 10 |
-| Brisbane Cricket Ground | Brisbane | 10 |
+| Dubai International Cricket Stadium | — | 371 |
+| Shere Bangla National Stadium, Mirpur | Dhaka | 343 |
+| Edgbaston, Birmingham | Birmingham | 262 |
+| County Ground | Bristol | 260 |
+| The Rose Bowl, Southampton | Southampton | 246 |
+| Kennington Oval, London | London | 222 |
+| Adelaide Oval | — | 217 |
+| Trent Bridge, Nottingham | Nottingham | 216 |
+| Harare Sports Club | — | 214 |
+| County Ground, Chelmsford | Chelmsford | 205 |
 
-## Graph Statistics (500 T20 matches)
+## Graph Statistics
 
 ```
-Total nodes:  1,852
-Total edges: 28,973
+Total nodes:    36,619
+Total edges: 1,372,313
 
-Player          1,133
-Match             500
-Venue             100
-Team               87
-Tournament         28
-Season              4
+Player          12,933
+Match           21,324
+Venue              877
+Team               383
+Tournament       1,053
+Season              49
 ```
+
+### Matches by format
+
+| Format | Matches |
+|---|---|
+| T20 | 13,069 |
+| ODI | 3,098 |
+| MDM (Multi-day domestic) | 2,085 |
+| ODM (One-day domestic) | 1,852 |
+| Test | 900 |
+| IT20 (International T20) | 320 |
 
 ## Queries Only a Graph Can Answer
 
@@ -357,13 +378,24 @@ RETURN p.name, collect(DISTINCT t.name) AS tournaments, count(DISTINCT t) AS cou
 ORDER BY count DESC LIMIT 10
 ```
 
+## Performance
+
+ETL loads **21,324 matches in ~24 minutes** on a MacBook Pro (embedded mode, no server):
+
+- **31 matches/s** at start, **13 matches/s** at 21K (rate declines as graph grows)
+- Batch Cypher execution: groups node CREATEs and edge MATCH+CREATEs
+- Property indexes on Player.cricsheet_id, Match.file_id, Team.name, Venue.name, Tournament.name, Season.year
+- Python-side deduplication (Registry class) avoids redundant MERGE checks
+
 ## Project Structure
 
 ```
 cricket-kg/
 ├── etl/
-│   └── loader.py              # Main ETL: JSON → Samyama graph (single file, ~400 lines)
-├── mcp_server/                # MCP tools (planned — or auto-generated via SK-12)
+│   └── loader.py              # Main ETL: JSON → Samyama graph (~400 lines)
+├── scripts/
+│   └── run_queries.py         # Run all showcase queries against loaded graph
+├── mcp_server/                # MCP tools (planned)
 │   └── tools/
 ├── tests/
 │   └── test_loader.py         # 23 tests: all node types, edges, stats, multi-hop
@@ -385,7 +417,7 @@ Tests cover: match creation, team/player/venue/tournament nodes, COMPETED_IN, WO
 
 ## Roadmap
 
-- [ ] Load all 21,325 matches (full dataset)
+- [x] Load all 21,324 matches (full dataset — 24 min)
 - [ ] MCP server tools (or auto-generated via [SK-12](https://github.com/samyama-ai/samyama-graph))
 - [ ] Vector embeddings for player performance profiles (similarity search)
 - [ ] Graph algorithms: PageRank (partnership importance), community detection (player clusters)
@@ -398,7 +430,6 @@ Tests cover: match creation, team/player/venue/tournament nodes, COMPETED_IN, WO
 - [Samyama Graph Database](https://github.com/samyama-ai/samyama-graph) — High-performance graph DB with OpenCypher, vector search, and optimization
 - [Cricsheet.org](https://cricsheet.org/) — Ball-by-ball cricket data (CC-BY-4.0)
 - [Clinical Trials KG](https://github.com/samyama-ai/clinicaltrials-kg) — Same architecture pattern for clinical research
-- [boundary-graph](https://boundary-graph.netlify.app/) — Flat D3 visualization (cricket-kg goes further: queryable graph + MCP + algorithms)
 
 ## License
 
