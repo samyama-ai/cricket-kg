@@ -17,6 +17,7 @@ import json
 import glob
 import time
 import os
+import sys
 from pathlib import Path
 from collections import defaultdict
 from samyama import SamyamaClient
@@ -25,7 +26,7 @@ GRAPH = "default"
 
 
 # ---------------------------------------------------------------------------
-# Cypher helpers (match clinicaltrials-kg patterns)
+# Cypher helpers
 # ---------------------------------------------------------------------------
 
 def _escape(value) -> str:
@@ -50,23 +51,86 @@ def _prop_str(props: dict) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
-def _merge_node(client, label, props):
-    client.query(f"MERGE (n:{label} {_prop_str(props)})", GRAPH)
+def _create_node(client, label, props):
+    client.query(f"CREATE (n:{label} {_prop_str(props)})", GRAPH)
+
+
+def _match_to_where(var_name, match_str):
+    """Convert 'prop: "value"' to 'var.prop = "value"' for WHERE clause.
+
+    Index scans only trigger with WHERE, not inline MATCH properties.
+    """
+    return f"{var_name}.{match_str.replace(': ', ' = ', 1)}"
 
 
 def _create_edge(client, src_label, src_match, rel, tgt_label, tgt_match, props=None):
     prop_part = f" {_prop_str(props)}" if props else ""
-    q = (f"MATCH (a:{src_label} {{{src_match}}}), (b:{tgt_label} {{{tgt_match}}}) "
+    q = (f"MATCH (a:{src_label}), (b:{tgt_label}) "
+         f"WHERE {_match_to_where('a', src_match)} AND {_match_to_where('b', tgt_match)} "
          f"CREATE (a)-[:{rel}{prop_part}]->(b)")
     client.query(q, GRAPH)
 
 
+def _batch_create_nodes(client, nodes):
+    """Create multiple nodes in a single CREATE query.
+
+    Each node is a tuple: (label, props_dict)
+    """
+    if not nodes:
+        return
+    parts = [f"(:{label} {_prop_str(props)})" for label, props in nodes]
+    client.query(f"CREATE {', '.join(parts)}", GRAPH)
+
+
+def _batch_create_edges(client, edges):
+    """Create multiple edges in a single MATCH ... WHERE ... CREATE query.
+
+    Each edge is a tuple:
+        (src_label, src_match_str, rel_type, tgt_label, tgt_match_str, props_or_None)
+
+    Uses WHERE clause (not inline properties) to trigger index scans.
+    Deduplicates MATCH patterns so each unique node is matched once.
+    """
+    if not edges:
+        return
+    var_map = {}
+    match_parts = []
+    where_parts = []
+    create_parts = []
+
+    for src_label, src_match, rel, tgt_label, tgt_match, props in edges:
+        src_key = (src_label, src_match)
+        tgt_key = (tgt_label, tgt_match)
+
+        if src_key not in var_map:
+            vname = f"n{len(var_map)}"
+            var_map[src_key] = vname
+            match_parts.append(f"({vname}:{src_label})")
+            where_parts.append(_match_to_where(vname, src_match))
+
+        if tgt_key not in var_map:
+            vname = f"n{len(var_map)}"
+            var_map[tgt_key] = vname
+            match_parts.append(f"({vname}:{tgt_label})")
+            where_parts.append(_match_to_where(vname, tgt_match))
+
+        src_var = var_map[src_key]
+        tgt_var = var_map[tgt_key]
+        prop_part = f" {_prop_str(props)}" if props else ""
+        create_parts.append(f"({src_var})-[:{rel}{prop_part}]->({tgt_var})")
+
+    q = (f"MATCH {', '.join(match_parts)} "
+         f"WHERE {' AND '.join(where_parts)} "
+         f"CREATE {', '.join(create_parts)}")
+    client.query(q, GRAPH)
+
+
 # ---------------------------------------------------------------------------
-# Node creation (with dedup tracking)
+# Node dedup tracking (Registry checks, no queries)
 # ---------------------------------------------------------------------------
 
 class Registry:
-    """Tracks created nodes to avoid redundant MERGEs."""
+    """Tracks created entities to avoid duplicate node CREATEs."""
     def __init__(self):
         self.players: set[str] = set()       # cricsheet_id
         self.teams: set[str] = set()         # name.lower()
@@ -76,59 +140,51 @@ class Registry:
         self.player_teams: set[str] = set()  # "player_id|team" edge dedup
 
 
-def _ensure_player(client, reg, name, cricsheet_id):
+def _check_player(reg, name, cricsheet_id):
+    """Return (label, props) if new, else None."""
     if cricsheet_id in reg.players:
-        return
-    _merge_node(client, "Player", {"cricsheet_id": cricsheet_id, "name": name})
+        return None
     reg.players.add(cricsheet_id)
+    return ("Player", {"cricsheet_id": cricsheet_id, "name": name})
 
 
-def _ensure_team(client, reg, name):
+def _check_team(reg, name):
     key = name.lower()
     if key in reg.teams:
-        return
-    _merge_node(client, "Team", {"name": name})
+        return None
     reg.teams.add(key)
+    return ("Team", {"name": name})
 
 
-def _ensure_venue(client, reg, venue, city=None):
+def _check_venue(reg, venue, city=None):
     key = venue.lower()
     if key in reg.venues:
-        return
+        return None
+    reg.venues.add(key)
     props = {"name": venue}
     if city:
         props["city"] = city
-    _merge_node(client, "Venue", props)
-    reg.venues.add(key)
+    return ("Venue", props)
 
 
-def _ensure_tournament(client, reg, name):
+def _check_tournament(reg, name):
     key = name.lower()
     if key in reg.tournaments:
-        return
-    _merge_node(client, "Tournament", {"name": name})
+        return None
     reg.tournaments.add(key)
+    return ("Tournament", {"name": name})
 
 
-def _ensure_season(client, reg, season):
+def _check_season(reg, season):
     key = str(season)
     if key in reg.seasons:
-        return
-    _merge_node(client, "Season", {"year": season})
+        return None
     reg.seasons.add(key)
-
-
-def _ensure_played_for(client, reg, cricsheet_id, team_name):
-    key = f"{cricsheet_id}|{team_name.lower()}"
-    if key in reg.player_teams:
-        return
-    _create_edge(client, "Player", f"cricsheet_id: {_q(cricsheet_id)}",
-                 "PLAYED_FOR", "Team", f"name: {_q(team_name)}")
-    reg.player_teams.add(key)
+    return ("Season", {"year": season})
 
 
 # ---------------------------------------------------------------------------
-# Match ingestion
+# Match ingestion (batched nodes + batched edges = 2 queries per match)
 # ---------------------------------------------------------------------------
 
 def _ingest_match(client, data, file_id, reg, counts):
@@ -159,7 +215,40 @@ def _ingest_match(client, data, file_id, reg, counts):
     win_by_wickets = outcome.get("by", {}).get("wickets")
     result = outcome.get("result", "")  # "draw", "tie", "no result"
 
-    # Match node
+    # --- Phase 1: Collect new nodes, batch CREATE in one query ---
+
+    new_nodes = []
+
+    for team in teams:
+        node = _check_team(reg, team)
+        if node:
+            new_nodes.append(node)
+
+    if venue:
+        node = _check_venue(reg, venue, city)
+        if node:
+            new_nodes.append(node)
+
+    if tournament_name:
+        node = _check_tournament(reg, tournament_name)
+        if node:
+            new_nodes.append(node)
+
+    if season:
+        node = _check_season(reg, season)
+        if node:
+            new_nodes.append(node)
+
+    players_by_team = info.get("players", {})
+    for team, player_list in players_by_team.items():
+        for pname in player_list:
+            pid = registry.get(pname, "")
+            if pid:
+                node = _check_player(reg, pname, pid)
+                if node:
+                    new_nodes.append(node)
+
+    # Match node (always new)
     match_props = {
         "file_id": file_id,
         "match_type": match_type,
@@ -173,15 +262,19 @@ def _ingest_match(client, data, file_id, reg, counts):
     if win_by_wickets is not None:
         match_props["win_by_wickets"] = win_by_wickets
 
-    _merge_node(client, "Match", match_props)
+    new_nodes.append(("Match", match_props))
+
+    _batch_create_nodes(client, new_nodes)
     counts["matches"] += 1
     mm = f"file_id: {_q(file_id)}"
 
-    # Teams
+    # --- Phase 2: Collect ALL edges, batch CREATE in one query ---
+
+    edges = []
+
+    # Teams COMPETED_IN
     for team in teams:
-        _ensure_team(client, reg, team)
-        _create_edge(client, "Team", f"name: {_q(team)}", "COMPETED_IN", "Match", mm)
-        counts["edges"] += 1
+        edges.append(("Team", f"name: {_q(team)}", "COMPETED_IN", "Match", mm, None))
 
     # Winner edge
     if winner:
@@ -190,26 +283,21 @@ def _ingest_match(client, data, file_id, reg, counts):
             win_props["by_runs"] = win_by_runs
         if win_by_wickets is not None:
             win_props["by_wickets"] = win_by_wickets
-        _create_edge(client, "Team", f"name: {_q(winner)}", "WON", "Match", mm, win_props or None)
-        counts["edges"] += 1
+        edges.append(("Team", f"name: {_q(winner)}", "WON", "Match", mm, win_props or None))
 
     # Toss
     toss_winner = toss.get("winner", "")
     toss_decision = toss.get("decision", "")
     if toss_winner:
-        _create_edge(client, "Team", f"name: {_q(toss_winner)}", "WON_TOSS", "Match", mm,
-                     {"decision": toss_decision} if toss_decision else None)
-        counts["edges"] += 1
+        edges.append(("Team", f"name: {_q(toss_winner)}", "WON_TOSS", "Match", mm,
+                       {"decision": toss_decision} if toss_decision else None))
 
     # Venue
     if venue:
-        _ensure_venue(client, reg, venue, city)
-        _create_edge(client, "Match", mm, "HOSTED_AT", "Venue", f"name: {_q(venue)}")
-        counts["edges"] += 1
+        edges.append(("Match", mm, "HOSTED_AT", "Venue", f"name: {_q(venue)}", None))
 
     # Tournament
     if tournament_name:
-        _ensure_tournament(client, reg, tournament_name)
         event_props = {}
         mn = event.get("match_number")
         if mn is not None:
@@ -217,42 +305,48 @@ def _ingest_match(client, data, file_id, reg, counts):
         grp = event.get("group")
         if grp:
             event_props["group"] = grp
-        _create_edge(client, "Match", mm, "PART_OF", "Tournament", f"name: {_q(tournament_name)}",
-                     event_props or None)
-        counts["edges"] += 1
+        edges.append(("Match", mm, "PART_OF", "Tournament", f"name: {_q(tournament_name)}",
+                       event_props or None))
 
     # Season
     if season:
-        _ensure_season(client, reg, season)
-        _create_edge(client, "Match", mm, "IN_SEASON", "Season", f"year: {_q(season)}")
-        counts["edges"] += 1
+        edges.append(("Match", mm, "IN_SEASON", "Season", f"year: {_q(season)}", None))
 
-    # Players — register all and link to teams
-    players_by_team = info.get("players", {})
+    # PLAYED_FOR (with dedup via registry)
     for team, player_list in players_by_team.items():
         for pname in player_list:
             pid = registry.get(pname, "")
             if pid:
-                _ensure_player(client, reg, pname, pid)
-                _ensure_played_for(client, reg, pid, team)
+                key = f"{pid}|{team.lower()}"
+                if key not in reg.player_teams:
+                    edges.append(("Player", f"cricsheet_id: {_q(pid)}", "PLAYED_FOR",
+                                  "Team", f"name: {_q(team)}", None))
+                    reg.player_teams.add(key)
 
     # Player of match
     for pname in player_of_match:
         pid = registry.get(pname, "")
         if pid:
-            _create_edge(client, "Player", f"cricsheet_id: {_q(pid)}",
-                         "PLAYER_OF_MATCH", "Match", mm)
-            counts["edges"] += 1
+            edges.append(("Player", f"cricsheet_id: {_q(pid)}", "PLAYER_OF_MATCH",
+                          "Match", mm, None))
 
-    # Process innings for batting/bowling stats and dismissals
-    _process_innings(client, innings_data, registry, file_id, reg, counts)
+    # Innings batting/bowling/dismissal edges
+    dismissals = _collect_innings_edges(edges, innings_data, registry, file_id)
+
+    # Execute all edges in ONE batch query
+    if edges:
+        _batch_create_edges(client, edges)
+
+    counts["edges"] += len(edges)
+    counts["dismissals"] += dismissals
 
 
-def _process_innings(client, innings_data, registry, file_id, reg, counts):
+def _collect_innings_edges(edges, innings_data, registry, file_id):
+    """Aggregate ball-by-ball stats and append edges to the list. Returns dismissal count."""
     mm = f"file_id: {_q(file_id)}"
+    total_dismissals = 0
 
     for inn_idx, innings in enumerate(innings_data):
-        team = innings.get("team", "")
         overs = innings.get("overs", [])
         is_super_over = innings.get("super_over", False)
 
@@ -322,7 +416,7 @@ def _process_innings(client, innings_data, registry, file_id, reg, counts):
             if bowler_this_over and bowler_runs_this_over == 0:
                 bowling[bowler_this_over]["maidens"] += 1
 
-        # Create BATTED_IN edges with aggregated stats
+        # BATTED_IN edges
         for batter_name, stats in batting.items():
             pid = registry.get(batter_name, "")
             if not pid or stats["balls"] == 0:
@@ -338,11 +432,10 @@ def _process_innings(client, innings_data, registry, file_id, reg, counts):
             }
             if is_super_over:
                 edge_props["super_over"] = 1
-            _create_edge(client, "Player", f"cricsheet_id: {_q(pid)}",
-                         "BATTED_IN", "Match", mm, edge_props)
-            counts["edges"] += 1
+            edges.append(("Player", f"cricsheet_id: {_q(pid)}",
+                          "BATTED_IN", "Match", mm, edge_props))
 
-        # Create BOWLED_IN edges with aggregated stats
+        # BOWLED_IN edges
         for bowler_name, stats in bowling.items():
             pid = registry.get(bowler_name, "")
             if not pid or stats["balls"] == 0:
@@ -357,11 +450,10 @@ def _process_innings(client, innings_data, registry, file_id, reg, counts):
                 "economy": economy,
                 "innings_num": inn_idx,
             }
-            _create_edge(client, "Player", f"cricsheet_id: {_q(pid)}",
-                         "BOWLED_IN", "Match", mm, edge_props)
-            counts["edges"] += 1
+            edges.append(("Player", f"cricsheet_id: {_q(pid)}",
+                          "BOWLED_IN", "Match", mm, edge_props))
 
-        # Create DISMISSED edges
+        # DISMISSED edges
         for d in dismissals:
             out_pid = registry.get(d["player_out"], "")
             bowler_pid = registry.get(d["bowler"], "")
@@ -371,22 +463,22 @@ def _process_innings(client, innings_data, registry, file_id, reg, counts):
             # Bowler dismissed batsman
             if bowler_pid and d["kind"] in ("bowled", "caught", "caught and bowled",
                                              "lbw", "stumped", "hit wicket"):
-                _create_edge(client, "Player", f"cricsheet_id: {_q(bowler_pid)}",
-                             "DISMISSED", "Player", f"cricsheet_id: {_q(out_pid)}",
-                             {"kind": d["kind"], "over": d["over"],
-                              "match_file_id": file_id})
-                counts["dismissals"] += 1
-                counts["edges"] += 1
+                edges.append(("Player", f"cricsheet_id: {_q(bowler_pid)}",
+                              "DISMISSED", "Player", f"cricsheet_id: {_q(out_pid)}",
+                              {"kind": d["kind"], "over": d["over"],
+                               "match_file_id": file_id}))
+                total_dismissals += 1
 
             # Fielder involvement (caught, stumped, run out)
             for fname in d["fielders"]:
                 fpid = registry.get(fname, "")
                 if fpid and fpid != bowler_pid:
-                    _create_edge(client, "Player", f"cricsheet_id: {_q(fpid)}",
-                                 "FIELDED_DISMISSAL", "Player", f"cricsheet_id: {_q(out_pid)}",
-                                 {"kind": d["kind"], "over": d["over"],
-                                  "match_file_id": file_id})
-                    counts["edges"] += 1
+                    edges.append(("Player", f"cricsheet_id: {_q(fpid)}",
+                                  "FIELDED_DISMISSAL", "Player", f"cricsheet_id: {_q(out_pid)}",
+                                  {"kind": d["kind"], "over": d["over"],
+                                   "match_file_id": file_id}))
+
+    return total_dismissals
 
 
 # ---------------------------------------------------------------------------
@@ -413,8 +505,24 @@ def load_cricket(
     Returns:
         Dict with counts of all created entities.
     """
+    # Create indexes for O(1) MATCH lookups (vs O(n) label scan)
+    indexes = [
+        ("Player", "cricsheet_id"),
+        ("Match", "file_id"),
+        ("Team", "name"),
+        ("Venue", "name"),
+        ("Tournament", "name"),
+        ("Season", "year"),
+    ]
+    for label, prop in indexes:
+        try:
+            client.query(f"CREATE INDEX ON :{label}({prop})", GRAPH)
+        except Exception:
+            pass  # Index may already exist
+    print(f"Created {len(indexes)} indexes", flush=True)
+
     files = sorted(glob.glob(os.path.join(data_dir, "*.json")))
-    print(f"Found {len(files)} JSON files in {data_dir}")
+    print(f"Found {len(files)} JSON files in {data_dir}", flush=True)
 
     reg = Registry()
     counts = {"matches": 0, "edges": 0, "dismissals": 0, "skipped": 0, "errors": 0}
@@ -431,7 +539,7 @@ def load_cricket(
             with open(fpath) as f:
                 data = json.load(f)
         except (json.JSONDecodeError, IOError) as exc:
-            print(f"  ERROR reading {fpath}: {exc}")
+            print(f"  ERROR reading {fpath}: {exc}", flush=True)
             counts["errors"] += 1
             continue
 
@@ -449,15 +557,17 @@ def load_cricket(
             _ingest_match(client, data, file_id, reg, counts)
             loaded += 1
         except Exception as exc:
-            print(f"  ERROR ingesting {file_id}: {exc}")
+            print(f"  ERROR ingesting {file_id}: {exc}", flush=True)
             counts["errors"] += 1
             continue
 
-        if loaded % 100 == 0:
+        if loaded % 500 == 0:
             elapsed = time.time() - t0
+            rate = loaded / elapsed if elapsed > 0 else 0
             print(f"  [{loaded}/{max_matches or len(files)}] "
-                  f"{elapsed:.0f}s — {len(reg.players)} players, "
-                  f"{counts['matches']} matches, {counts['edges']} edges")
+                  f"{elapsed:.0f}s ({rate:.0f} matches/s) — "
+                  f"{len(reg.players)} players, {counts['edges']} edges",
+                  flush=True)
 
     elapsed = time.time() - t0
     counts["players"] = len(reg.players)
@@ -466,11 +576,11 @@ def load_cricket(
     counts["tournaments"] = len(reg.tournaments)
     counts["seasons"] = len(reg.seasons)
 
-    print(f"\n{'='*60}")
-    print(f"Cricket KG load complete in {elapsed:.1f}s")
-    print(f"{'='*60}")
+    print(f"\n{'='*60}", flush=True)
+    print(f"Cricket KG load complete in {elapsed:.1f}s", flush=True)
+    print(f"{'='*60}", flush=True)
     for k, v in counts.items():
-        print(f"  {k:<17s} {v}")
+        print(f"  {k:<17s} {v}", flush=True)
     return counts
 
 
