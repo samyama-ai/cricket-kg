@@ -1,0 +1,147 @@
+# Cricket KG — custom MCP tools for samyama-mcp-serve
+#
+# Auto-generated tools handle: search/get/count per label (6),
+# find_connections/traverse per edge type (24), algorithms (3), generic (2).
+# These custom tools add cricket-specific aggregation queries.
+
+include_node_tools: true
+include_edge_tools: true
+include_vector_tools: true
+include_algorithm_tools: true
+
+custom_tools:
+
+  - name: top_run_scorers
+    description: "Top run scorers across all matches (or filtered by match type). Returns player name, total runs, innings, balls faced, fours, and sixes."
+    cypher_template: >
+      MATCH (p:Player)-[b:BATTED_IN]->(m:Match)
+      WHERE m.match_type CONTAINS "{match_type}"
+      RETURN p.name AS player, sum(b.runs) AS total_runs,
+             count(b) AS innings, sum(b.balls) AS balls,
+             sum(b.fours) AS fours, sum(b.sixes) AS sixes
+      ORDER BY total_runs DESC LIMIT {limit}
+    parameters:
+      - {name: match_type, type: str, default: ""}
+      - {name: limit, type: int, default: 20}
+
+  - name: top_wicket_takers
+    description: "Top wicket takers across all matches (or filtered by match type). Returns player name, total wickets, innings, and runs conceded."
+    cypher_template: >
+      MATCH (p:Player)-[b:BOWLED_IN]->(m:Match)
+      WHERE m.match_type CONTAINS "{match_type}"
+      RETURN p.name AS player, sum(b.wickets) AS total_wickets,
+             count(b) AS innings, sum(b.runs_conceded) AS runs_conceded
+      ORDER BY total_wickets DESC LIMIT {limit}
+    parameters:
+      - {name: match_type, type: str, default: ""}
+      - {name: limit, type: int, default: 20}
+
+  - name: player_batting_stats
+    description: "Batting statistics for a specific player across all formats. Shows runs, innings, balls, fours, sixes, and strike rate."
+    cypher_template: >
+      MATCH (p:Player)-[b:BATTED_IN]->(m:Match)
+      WHERE p.name CONTAINS "{player_name}"
+      RETURN p.name AS player, m.match_type AS format,
+             sum(b.runs) AS runs, count(b) AS innings,
+             sum(b.balls) AS balls, sum(b.fours) AS fours,
+             sum(b.sixes) AS sixes
+      ORDER BY runs DESC
+    parameters:
+      - {name: player_name, type: str}
+
+  - name: player_bowling_stats
+    description: "Bowling statistics for a specific player across all formats. Shows wickets, innings, runs conceded, and maidens."
+    cypher_template: >
+      MATCH (p:Player)-[b:BOWLED_IN]->(m:Match)
+      WHERE p.name CONTAINS "{player_name}"
+      RETURN p.name AS player, m.match_type AS format,
+             sum(b.wickets) AS wickets, count(b) AS innings,
+             sum(b.runs_conceded) AS runs_conceded,
+             sum(b.maidens) AS maidens
+      ORDER BY wickets DESC
+    parameters:
+      - {name: player_name, type: str}
+
+  - name: dismissal_network
+    description: "Top bowler-batsman dismissal pairs. Shows who dismissed whom the most and how."
+    cypher_template: >
+      MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player)
+      RETURN bowler.name AS bowler, batsman.name AS batsman,
+             count(d) AS times, collect(d.kind) AS methods
+      ORDER BY times DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 15}
+
+  - name: team_record
+    description: "Win record for a specific team. Shows total wins, matches played, and win percentage."
+    cypher_template: >
+      MATCH (t:Team)-[:COMPETED_IN]->(m:Match)
+      WHERE t.name CONTAINS "{team_name}"
+      OPTIONAL MATCH (t)-[:WON]->(m)
+      RETURN t.name AS team, count(DISTINCT m) AS matches,
+             count(DISTINCT m) AS wins
+      ORDER BY wins DESC
+    parameters:
+      - {name: team_name, type: str}
+
+  - name: venue_stats
+    description: "Match statistics for a specific venue. Shows total matches, match types played, and teams that played there."
+    cypher_template: >
+      MATCH (m:Match)-[:HOSTED_AT]->(v:Venue)
+      WHERE v.name CONTAINS "{venue_name}"
+      RETURN v.name AS venue, v.city AS city, count(m) AS matches
+    parameters:
+      - {name: venue_name, type: str}
+
+  - name: player_of_match_awards
+    description: "Players with the most Player of the Match awards."
+    cypher_template: >
+      MATCH (p:Player)-[:PLAYER_OF_MATCH]->(m:Match)
+      RETURN p.name AS player, count(m) AS awards
+      ORDER BY awards DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
+
+  - name: tournament_top_scorers
+    description: "Top run scorers in a specific tournament (e.g., 'IPL', 'World Cup')."
+    cypher_template: >
+      MATCH (p:Player)-[b:BATTED_IN]->(m:Match)-[:PART_OF]->(t:Tournament)
+      WHERE t.name CONTAINS "{tournament}"
+      RETURN p.name AS player, sum(b.runs) AS runs,
+             count(b) AS innings, sum(b.sixes) AS sixes
+      ORDER BY runs DESC LIMIT {limit}
+    parameters:
+      - {name: tournament, type: str}
+      - {name: limit, type: int, default: 20}
+
+  - name: head_to_head
+    description: "Head-to-head record between two teams. Shows matches played together and who won."
+    cypher_template: >
+      MATCH (t1:Team)-[:COMPETED_IN]->(m:Match)<-[:COMPETED_IN]-(t2:Team)
+      WHERE t1.name CONTAINS "{team1}" AND t2.name CONTAINS "{team2}"
+      OPTIONAL MATCH (winner:Team)-[:WON]->(m)
+      RETURN t1.name AS team1, t2.name AS team2,
+             count(DISTINCT m) AS matches,
+             winner.name AS winner
+    parameters:
+      - {name: team1, type: str}
+      - {name: team2, type: str}
+
+  - name: most_sixes
+    description: "Players who hit the most sixes across all formats."
+    cypher_template: >
+      MATCH (p:Player)-[b:BATTED_IN]->(m:Match)
+      RETURN p.name AS player, sum(b.sixes) AS sixes, sum(b.runs) AS runs
+      ORDER BY sixes DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
+
+  - name: top_fielders
+    description: "Top fielders ranked by total catches taken."
+    cypher_template: >
+      MATCH (fielder:Player)-[d:FIELDED_DISMISSAL]->(batsman:Player)
+      WHERE d.kind = "caught"
+      RETURN fielder.name AS fielder, count(d) AS catches
+      ORDER BY catches DESC LIMIT {limit}
+    parameters:
+      - {name: limit, type: int, default: 20}
