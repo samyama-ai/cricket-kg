@@ -1,5 +1,8 @@
 # Cricket Knowledge Graph
 
+![Language](https://img.shields.io/badge/language-Python-3776AB)
+
+
 A knowledge graph of ball-by-ball cricket data from [Cricsheet.org](https://cricsheet.org/) — powered by [Samyama Graph Database](https://github.com/samyama-ai/samyama-graph).
 
 **21,324 matches** | **36,619 nodes** | **1.37M edges** | **12,933 players** | **Ball-by-ball granularity** | **All formats: Tests, ODIs, T20s, IPL, BBL, CPL, PSL, The Hundred, ...**
