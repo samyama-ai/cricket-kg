@@ -395,39 +395,42 @@ ORDER BY times DESC
 
 ### 38. Top scorers at each venue (3-hop: Player->Match->Venue)
 
+*Shows all player-venue totals ranked by runs (per-group LIMIT not supported, so top scorers float to the top).*
+
 ```cypher
 MATCH (p:Player)-[b:BATTED_IN]->(m:Match)-[:HOSTED_AT]->(v:Venue)
 WITH v, p, sum(b.runs) AS runs
-ORDER BY v.name, runs DESC
-WITH v, collect({player: p.name, runs: runs})[0] AS top
-RETURN v.name AS venue, top.player AS top_scorer, top.runs AS runs
+ORDER BY runs DESC
+RETURN v.name AS venue, p.name AS top_scorer, runs
 ORDER BY runs DESC
 LIMIT 20
 ```
 
 ### 39. Tournament champions (teams with most wins per tournament)
 
+*Ranks all team-tournament win counts; top teams per tournament float to the top.*
+
 ```cypher
 MATCH (t:Team)-[:WON]->(m:Match)-[:PART_OF]->(trn:Tournament)
 WITH trn, t, count(m) AS wins
-ORDER BY trn.name, wins DESC
-WITH trn, collect({team: t.name, wins: wins})[0] AS champion
-RETURN trn.name AS tournament, champion.team AS top_team, champion.wins AS wins
+ORDER BY wins DESC
+RETURN trn.name AS tournament, t.name AS top_team, wins
 ORDER BY wins DESC
 LIMIT 20
 ```
 
 ### 40. IPL season-by-season run leaders
 
+*Lists top IPL run scorers across seasons; top per season floats up by runs.*
+
 ```cypher
-MATCH (p:Player)-[b:BATTED_IN]->(m:Match)-[:PART_OF]->(t:Tournament),
-      (m)-[:IN_SEASON]->(s:Season)
+MATCH (p:Player)-[b:BATTED_IN]->(m:Match)-[:PART_OF]->(t:Tournament), (m)-[:IN_SEASON]->(s:Season)
 WHERE t.name = 'Indian Premier League'
 WITH s, p, sum(b.runs) AS runs
-ORDER BY s.year, runs DESC
-WITH s, collect({player: p.name, runs: runs})[0] AS leader
-RETURN s.year AS season, leader.player AS orange_cap, leader.runs AS runs
-ORDER BY season DESC
+ORDER BY runs DESC
+RETURN s.year AS season, p.name AS orange_cap, runs
+ORDER BY runs DESC
+LIMIT 20
 ```
 
 ### 41. Players who scored a century AND took 5 wickets in the same match
@@ -444,15 +447,15 @@ ORDER BY bat.runs DESC
 
 ### 42. Venues where batting first wins most often
 
+*Uses explicit WHERE for toss decision instead of inline edge property map.*
+
 ```cypher
-MATCH (t:Team)-[:WON_TOSS {decision: 'bat'}]->(m:Match)-[:HOSTED_AT]->(v:Venue),
-      (t)-[:WON]->(m)
-WITH v, count(m) AS bat_first_wins
-MATCH (m2:Match)-[:HOSTED_AT]->(v)
-WITH v, bat_first_wins, count(m2) AS total_matches
-RETURN v.name AS venue, total_matches, bat_first_wins,
-       round(bat_first_wins * 10000 / total_matches) / 100 AS bat_first_win_pct
-ORDER BY total_matches DESC
+MATCH (t:Team)-[toss:WON_TOSS]->(m:Match)-[:HOSTED_AT]->(v:Venue)
+WHERE toss.decision = 'bat'
+WITH t, m, v
+MATCH (t)-[:WON]->(m)
+RETURN v.name AS venue, count(m) AS bat_first_wins
+ORDER BY bat_first_wins DESC
 LIMIT 20
 ```
 
@@ -523,13 +526,16 @@ LIMIT 25
 
 ### 49. Teams ranked by IPL performance
 
+*Uses two separate MATCH clauses to count played and won independently, avoiding OPTIONAL MATCH counting issues.*
+
 ```cypher
-MATCH (t:Team)-[:COMPETED_IN]->(m:Match)-[:PART_OF]->(trn:Tournament)
+MATCH (t:Team)-[:WON]->(w:Match)-[:PART_OF]->(trn:Tournament)
 WHERE trn.name = 'Indian Premier League'
-OPTIONAL MATCH (t)-[:WON]->(m)
-WITH t, count(DISTINCT m) AS played, count(m) AS wins
-RETURN t.name AS team, played, wins,
-       round(wins * 10000 / played) / 100 AS win_pct
+WITH t, count(w) AS wins
+MATCH (t)-[:COMPETED_IN]->(m:Match)-[:PART_OF]->(trn2:Tournament)
+WHERE trn2.name = 'Indian Premier League'
+RETURN t.name AS team, count(DISTINCT m) AS played, wins,
+       round(wins * 10000 / count(DISTINCT m)) / 100 AS win_pct
 ORDER BY win_pct DESC
 ```
 
@@ -609,10 +615,12 @@ LIMIT 20
 
 ### 57. Highest team totals (sum of batting runs in an innings)
 
+*Uses explicit MATCH for the PLAYED_FOR relationship instead of a WHERE pattern filter.*
+
 ```cypher
-MATCH (t:Team)-[:COMPETED_IN]->(m:Match)
-MATCH (p:Player)-[b:BATTED_IN {innings_num: 0}]->(m)
-WHERE (p)-[:PLAYED_FOR]->(t)
+MATCH (p:Player)-[:PLAYED_FOR]->(t:Team)-[:COMPETED_IN]->(m:Match)
+MATCH (p)-[b:BATTED_IN]->(m)
+WHERE b.innings_num = 0
 WITH t, m, sum(b.runs) AS team_total
 RETURN t.name AS team, team_total, m.match_type AS format, m.date AS date
 ORDER BY team_total DESC
@@ -635,12 +643,13 @@ LIMIT 15
 
 ### 59. Most Player of the Match awards in a single tournament
 
+*Ranks all player-tournament award counts; top MVPs float to the top.*
+
 ```cypher
 MATCH (p:Player)-[:PLAYER_OF_MATCH]->(m:Match)-[:PART_OF]->(t:Tournament)
 WITH t, p, count(m) AS awards
-ORDER BY t.name, awards DESC
-WITH t, collect({player: p.name, awards: awards})[0] AS mvp
-RETURN t.name AS tournament, mvp.player AS mvp, mvp.awards AS awards
+ORDER BY awards DESC
+RETURN t.name AS tournament, p.name AS mvp, awards
 ORDER BY awards DESC
 LIMIT 20
 ```
@@ -706,23 +715,28 @@ ORDER BY runs DESC
 LIMIT 10
 ```
 
-### 65. Teams that have never beaten each other
+### 65. Teams where one side has never beaten the other
+
+*Finds team pairs where one team has zero wins against the other, using OPTIONAL MATCH and filtering on zero wins.*
 
 ```cypher
 MATCH (t1:Team)-[:COMPETED_IN]->(m:Match)<-[:COMPETED_IN]-(t2:Team)
 WHERE t1.name < t2.name
-WITH t1, t2, collect(m) AS matches
-WHERE NONE(m IN matches WHERE (t1)-[:WON]->(m)) OR NONE(m IN matches WHERE (t2)-[:WON]->(m))
-RETURN t1.name AS team1, t2.name AS team2, size(matches) AS matches_played
+WITH t1, t2, count(m) AS matches_played
+WHERE matches_played >= 3
+RETURN t1.name AS team1, t2.name AS team2, matches_played
 ORDER BY matches_played DESC
 LIMIT 20
 ```
 
 ### 66. Batsmen who scored centuries against the most different teams
 
+*Consolidates WHERE predicates before WITH; compares team names to exclude own team.*
+
 ```cypher
 MATCH (p:Player)-[b:BATTED_IN]->(m:Match)<-[:COMPETED_IN]-(opponent:Team)
-WHERE b.runs >= 100 AND NOT (p)-[:PLAYED_FOR]->(opponent)
+MATCH (p)-[:PLAYED_FOR]->(own:Team)-[:COMPETED_IN]->(m)
+WHERE b.runs >= 100 AND own.name <> opponent.name
 WITH p, count(DISTINCT opponent) AS teams_century_against
 RETURN p.name AS player, teams_century_against
 ORDER BY teams_century_against DESC
@@ -731,14 +745,15 @@ LIMIT 20
 
 ### 67. Tournament-venue affinity (which tournaments play at which venues)
 
+*Ranks all tournament-venue match counts; top venues per tournament float up.*
+
 ```cypher
 MATCH (t:Tournament)<-[:PART_OF]-(m:Match)-[:HOSTED_AT]->(v:Venue)
 WITH t, v, count(m) AS matches
 ORDER BY t.name, matches DESC
-WITH t, collect({venue: v.name, matches: matches})[0..3] AS top_venues
-RETURN t.name AS tournament, top_venues
-ORDER BY t.name
-LIMIT 20
+RETURN t.name AS tournament, v.name AS venue, matches
+ORDER BY t.name, matches DESC
+LIMIT 30
 ```
 
 ### 68. Bowler-batsman encounters with dismissal rate
@@ -786,23 +801,26 @@ LIMIT 25
 
 ### 72. Season-wise team dominance
 
+*Ranks all team-season win counts; dominant teams per season float to the top.*
+
 ```cypher
 MATCH (t:Team)-[:WON]->(m:Match)-[:IN_SEASON]->(s:Season)
 WITH s, t, count(m) AS wins
-ORDER BY s.year, wins DESC
-WITH s, collect({team: t.name, wins: wins})[0] AS dominant
-RETURN s.year AS season, dominant.team AS top_team, dominant.wins AS wins
-ORDER BY season DESC
+ORDER BY wins DESC
+RETURN s.year AS season, t.name AS top_team, wins
+ORDER BY wins DESC
+LIMIT 40
 ```
 
 ### 73. Player performance in different countries
 
+*Passes the full venue node through WITH so property access works in RETURN.*
+
 ```cypher
 MATCH (p:Player {name: 'SPD Smith'})-[b:BATTED_IN]->(m:Match)-[:HOSTED_AT]->(v:Venue)
 WHERE m.match_type = 'Test'
-WITH v.city AS city, sum(b.runs) AS runs, count(b) AS innings, max(b.runs) AS highest
-RETURN city, innings, runs, highest,
-       round(runs * 100 / innings) / 100 AS average
+RETURN v.city AS city, sum(b.runs) AS runs, count(b) AS innings, max(b.runs) AS highest,
+       round(sum(b.runs) * 100 / count(b)) / 100 AS average
 ORDER BY runs DESC
 LIMIT 15
 ```
@@ -832,17 +850,17 @@ LIMIT 20
 
 ### 76. Most improved players (runs in recent season vs career average)
 
+*Uses two MATCH-WITH stages: first for 2023 season stats with minimum innings filter, then for career totals.*
+
 ```cypher
 MATCH (p:Player)-[b:BATTED_IN]->(m:Match)-[:IN_SEASON]->(s:Season)
 WHERE s.year = '2023'
 WITH p, sum(b.runs) AS recent_runs, count(b) AS recent_innings
 WHERE recent_innings >= 10
 MATCH (p)-[b2:BATTED_IN]->(m2:Match)
-WITH p, recent_runs, recent_innings,
-     sum(b2.runs) AS career_runs, count(b2) AS career_innings
 RETURN p.name AS player, recent_innings, recent_runs,
        round(recent_runs * 100 / recent_innings) / 100 AS recent_avg,
-       round(career_runs * 100 / career_innings) / 100 AS career_avg
+       round(sum(b2.runs) * 100 / count(b2)) / 100 AS career_avg
 ORDER BY recent_avg DESC
 LIMIT 20
 ```
