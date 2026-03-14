@@ -78,6 +78,32 @@ Player ─[PLAYED_FOR]──────> Team ─[COMPETED_IN]──> Match ─
 
 ## Quick Start
 
+### Option A: Pre-built Snapshot (Recommended)
+
+A pre-built `.sgsnap` snapshot of the full dataset is available for instant import:
+
+| | |
+|---|---|
+| **Download** | [cricket.sgsnap](https://github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-v1/cricket.sgsnap) (21 MB) |
+| **Nodes** | 36,619 |
+| **Edges** | 1,413,870 |
+| **Requires** | Samyama Graph v0.6.1+ |
+
+```bash
+# Download snapshot
+curl -LO https://github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-v1/cricket.sgsnap
+
+# Create tenant and import
+curl -X POST http://localhost:8080/api/tenants \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"cricket","name":"Cricket KG"}'
+
+curl -X POST http://localhost:8080/api/tenants/cricket/snapshot/import \
+  -F "file=@cricket.sgsnap"
+```
+
+### Option B: Load from Source
+
 ```bash
 # Clone
 git clone https://github.com/samyama-ai/cricket-kg.git
