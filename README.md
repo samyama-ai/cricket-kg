@@ -377,35 +377,72 @@ Season              49
 | Test | 900 |
 | IT20 (International T20) | 320 |
 
-## Queries Only a Graph Can Answer
+## 100 Queries: From SQL to Graph
 
-These require multi-hop traversals that are impossible with flat stat tables:
+We maintain a **[100-query showcase](docs/100-queries.md)** organized in 5 progressive levels that demonstrate where relational databases hit their ceiling and where graph databases take over:
 
+| Level | Name | SQL Equivalent | Queries |
+|-------|------|----------------|---------|
+| **1** | Foundation | Single table, GROUP BY | 1--15 |
+| **2** | Relational Joins | 2-table JOIN | 16--35 |
+| **3** | Multi-hop Traversals | 3--5 JOINs, self-joins **— SQL slows here** | 36--60 |
+| **4** | Path & Pattern Analytics | Recursive CTEs **— SQL breaks here** | 61--80 |
+| **5** | Network Intelligence | **Impossible in SQL** | 81--100 |
+
+### The inflection point
+
+**Levels 1--2**: Both RDBMS and graph perform well. Choose based on your stack.
+
+**Level 3**: Graph databases start winning. Each hop follows a pointer instead of scanning a hash table. Queries stay readable while SQL accumulates JOINs.
+
+**Level 4**: RDBMS queries become fragile. Adding one more hop requires restructuring the entire query. Graph queries simply extend the pattern.
+
+**Level 5**: RDBMS cannot express these queries at all. Dismissal chains, triangle detection, network centrality, variable-length path traversal — these are native graph operations.
+
+### Highlights
+
+**Dismissal chains** (Level 5) — A dismissed B who dismissed C:
 ```cypher
--- Which bowlers dismissed batsmen who scored 50+ against their own team?
-MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player)-[b:BATTED_IN]->(m:Match),
-      (bowler)-[:PLAYED_FOR]->(t:Team)-[:COMPETED_IN]->(m)
-WHERE b.runs >= 50
-RETURN bowler.name, batsman.name, b.runs, d.kind
-
--- Players who played for multiple IPL teams
-MATCH (p:Player)-[:PLAYED_FOR]->(t1:Team), (p)-[:PLAYED_FOR]->(t2:Team)
-WHERE t1 <> t2
-MATCH (t1)-[:COMPETED_IN]->(m:Match)-[:PART_OF]->(tour:Tournament {name: "Indian Premier League"})
-RETURN p.name, collect(DISTINCT t1.name) AS teams
-ORDER BY size(teams) DESC
-
--- Bowler effectiveness at specific venues
-MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player),
-      (bowler)-[:BOWLED_IN]->(m:Match)-[:HOSTED_AT]->(v:Venue)
-RETURN bowler.name, v.name AS venue, count(d) AS dismissals
-ORDER BY dismissals DESC LIMIT 20
-
--- Tournament-spanning player journeys
-MATCH (p:Player)-[:BATTED_IN]->(m:Match)-[:PART_OF]->(t:Tournament)
-RETURN p.name, collect(DISTINCT t.name) AS tournaments, count(DISTINCT t) AS count
-ORDER BY count DESC LIMIT 10
+MATCH (a:Player)-[:DISMISSED]->(b:Player)-[:DISMISSED]->(c:Player)
+WHERE a <> c
+RETURN a.name, b.name, c.name, count(*) AS strength
+ORDER BY strength DESC LIMIT 10
 ```
+
+**Mutual dismissal pairs** — Bowlers who've dismissed each other:
+```cypher
+MATCH (a:Player)-[:DISMISSED]->(b:Player)-[:DISMISSED]->(a)
+WHERE a.name < b.name
+RETURN a.name, b.name
+LIMIT 20
+```
+
+**Team overlap network** — Players shared between rival teams:
+```cypher
+MATCH (t1:Team)<-[:PLAYED_FOR]-(p:Player)-[:PLAYED_FOR]->(t2:Team)
+WHERE t1.name < t2.name
+WITH t1, t2, count(p) AS shared, collect(p.name) AS players
+WHERE shared >= 5
+RETURN t1.name, t2.name, shared, players[0..5]
+ORDER BY shared DESC
+```
+
+**Full player profile** (7-hop aggregation across entire graph):
+```cypher
+MATCH (p:Player {name: 'V Kohli'})
+OPTIONAL MATCH (p)-[bat:BATTED_IN]->(m1:Match)
+OPTIONAL MATCH (p)-[bowl:BOWLED_IN]->(m2:Match)
+OPTIONAL MATCH (p)-[:PLAYED_FOR]->(team:Team)
+OPTIONAL MATCH (p)-[:PLAYER_OF_MATCH]->(m3:Match)
+OPTIONAL MATCH (p)-[d:DISMISSED]->(victim:Player)
+RETURN sum(bat.runs) AS runs, count(bat) AS innings,
+       max(bat.runs) AS highest, sum(bat.sixes) AS sixes,
+       sum(bowl.wickets) AS wickets,
+       collect(DISTINCT team.name) AS teams,
+       count(DISTINCT m3) AS pom_awards, count(d) AS dismissals
+```
+
+See the **[full 100-query showcase](docs/100-queries.md)** for all queries with explanations.
 
 ## Performance
 
