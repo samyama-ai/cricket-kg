@@ -159,6 +159,48 @@ def run_all(client):
     for r in rows:
         print(f"  {str(r['format']):20s} {r['matches']:>8,}")
 
+    # ---- Graph-Only Queries (multi-hop, impossible with flat tables) ----
+
+    print("\n" + "=" * 70)
+    print("QUERIES ONLY A GRAPH CAN ANSWER")
+    print("=" * 70)
+
+    # 1. Bowlers who dismissed batsmen who scored 50+ against their own team
+    print("\n## Bowlers who dismissed 50+ scorers playing against their team\n")
+    rows = q(client, """
+        MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player)-[b:BATTED_IN]->(m:Match),
+              (bowler)-[:PLAYED_FOR]->(t:Team)-[:COMPETED_IN]->(m)
+        WHERE b.runs >= 50
+        RETURN bowler.name AS bowler, batsman.name AS batsman, b.runs AS runs, d.kind AS how
+        ORDER BY runs DESC LIMIT 15
+    """)
+    print(f"  {'Bowler':25s} {'Batsman':25s} {'Runs':>6s} {'How':15s}")
+    for r in rows:
+        print(f"  {str(r['bowler']):25s} {str(r['batsman']):25s} {r['runs']:>6,.0f} {str(r['how']):15s}")
+
+    # 2. Bowler effectiveness at specific venues
+    print("\n## Bowler effectiveness at specific venues\n")
+    rows = q(client, """
+        MATCH (bowler:Player)-[d:DISMISSED]->(batsman:Player),
+              (bowler)-[:BOWLED_IN]->(m:Match)-[:HOSTED_AT]->(v:Venue)
+        RETURN bowler.name AS bowler, v.name AS venue, count(d) AS dismissals
+        ORDER BY dismissals DESC LIMIT 15
+    """)
+    print(f"  {'Bowler':25s} {'Venue':40s} {'Dismissals':>10s}")
+    for r in rows:
+        print(f"  {str(r['bowler']):25s} {str(r['venue']):40s} {r['dismissals']:>10,}")
+
+    # 3. Tournament-spanning player journeys
+    print("\n## Tournament-spanning player journeys\n")
+    rows = q(client, """
+        MATCH (p:Player)-[:BATTED_IN]->(m:Match)-[:PART_OF]->(t:Tournament)
+        RETURN p.name AS player, collect(DISTINCT t.name) AS tournaments, count(DISTINCT t) AS count
+        ORDER BY count DESC LIMIT 10
+    """)
+    print(f"  {'Player':25s} {'Tournaments':>12s}")
+    for r in rows:
+        print(f"  {str(r['player']):25s} {r['count']:>12,}")
+
     print("\n" + "=" * 70)
     print("DONE")
 
