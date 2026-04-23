@@ -2,6 +2,9 @@
 
 **36K nodes. 1.4M edges. Every ball from 21,324 matches -- Tests, ODIs, T20s, IPL, BBL, and more.**
 
+> Part of the **Samyama** ecosystem — loaded into and queried via the graph engine at [samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph).
+> This repo holds the loader and source-data specifics for the KG.
+
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
 
 ---
