@@ -12,21 +12,36 @@ from samyama_mcp.config import ToolConfig
 from samyama_mcp.server import SamyamaMCPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from etl.loader import load_cricket
+from etl.loader import load_cricket, GRAPH
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
 def server():
-    """Create a server with 20 matches — shared across all tests."""
+    """Create a server with 20 matches — shared across all tests.
+
+    Requires Cricsheet JSON files in data/json (see GETTING_STARTED.md §4).
+    They are not shipped in the repo, so on a fresh clone these tests skip
+    rather than fail.
+    """
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "data", "json")
+    if not os.path.isdir(data_dir) or not any(
+        f.endswith(".json") for f in os.listdir(data_dir)
+    ):
+        pytest.skip(
+            "Cricsheet data not found in data/json — download it "
+            "(see GETTING_STARTED.md §4) to run the MCP server tests."
+        )
     client = SamyamaClient.embedded()
-    load_cricket(client, data_dir="data/json", max_matches=20)
+    load_cricket(client, data_dir=data_dir, max_matches=20)
     config_path = os.path.join(
         os.path.dirname(__file__), "..", "mcp_server", "config.yaml"
     )
     config = ToolConfig.from_yaml(config_path)
-    return SamyamaMCPServer(client, server_name="Cricket KG Test", config=config)
+    return SamyamaMCPServer(
+        client, graph=GRAPH, server_name="Cricket KG Test", config=config
+    )
 
 
 def _call(server, tool_name, args=None):

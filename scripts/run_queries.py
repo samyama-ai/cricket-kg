@@ -4,9 +4,7 @@ import sys
 import time
 sys.path.insert(0, ".")
 from samyama import SamyamaClient
-from etl.loader import load_cricket
-
-GRAPH = "default"
+from etl.loader import load_cricket, GRAPH
 
 
 def q(client, cypher):
