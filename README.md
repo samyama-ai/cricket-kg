@@ -31,6 +31,18 @@ ORDER BY runs DESC LIMIT 5
 
 ---
 
+## Documentation
+
+New here? Start with the guides:
+
+| Guide | What it covers |
+|-------|----------------|
+| **[GETTING_STARTED.md](GETTING_STARTED.md)** | prerequisites (Python ≥ 3.10) · install · run the engine (Docker) · load the graph · first query |
+| **[docs/QUERYING.md](docs/QUERYING.md)** | ask questions via **MCP (Claude)**, the **HTTP API**, or the **Samyama CLI** |
+| [docs/100-queries.md](docs/100-queries.md) | 100 example Cypher queries |
+
+---
+
 ## Schema
 
 **6 node labels** -- Player (12,933), Match (21,324), Tournament (1,053), Venue (877), Team (383), Season (49)
@@ -41,31 +53,22 @@ ORDER BY runs DESC LIMIT 5
 
 ## Quick Start
 
-### Load from snapshot (recommended)
+**Full walkthrough → [GETTING_STARTED.md](GETTING_STARTED.md)** (prerequisites, Docker, loading, querying).
+
+Fastest path — run the engine and import the published snapshot into the `cricket` tenant
+(needs **Python ≥ 3.10** for the tooling and **Docker** for the engine):
 
 ```bash
-# Download (21 MB)
-curl -LO https://github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-v1/cricket.sgsnap
-
-# Start Samyama and import
-./target/release/samyama
-curl -X POST http://localhost:8080/api/tenants \
-  -H 'Content-Type: application/json' \
-  -d '{"id":"cricket","name":"Cricket KG"}'
-curl -X POST http://localhost:8080/api/tenants/cricket/snapshot/import \
-  -F "file=@cricket.sgsnap"
+pip install -r requirements.txt
+docker run --rm -p 8080:8080 -p 6379:6379 public.ecr.aws/f9f6l5u4/samyama-graph:1.1.0
+curl -LO https://github.com/samyama-ai/samyama-graph/releases/download/kg-snapshots-v1/cricket.sgsnap  # 21 MB
+curl -X POST http://localhost:8080/api/tenants -H 'Content-Type: application/json' -d '{"id":"cricket","name":"Cricket KG"}'
+curl -X POST http://localhost:8080/api/tenants/cricket/snapshot/import -F "file=@cricket.sgsnap"
 ```
 
-### Build from source
-
-```bash
-git clone https://github.com/samyama-ai/cricket-kg.git && cd cricket-kg
-pip install -e ".[dev]"
-mkdir -p data && curl -LO https://cricsheet.org/downloads/all_json.zip
-unzip -q all_json.zip -d data/json
-python -m etl.loader --data-dir data/json               # All 21,324 matches (~24 min)
-python -m etl.loader --data-dir data/json --max-matches 500 --match-type T20  # Quick test
-```
+Prefer to build from Cricsheet instead of the snapshot? See
+[GETTING_STARTED.md](GETTING_STARTED.md) §4. To query it (Claude / HTTP / CLI), see
+[docs/QUERYING.md](docs/QUERYING.md).
 
 ## Example Queries
 

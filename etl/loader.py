@@ -22,7 +22,7 @@ from pathlib import Path
 from collections import defaultdict
 from samyama import SamyamaClient
 
-GRAPH = "default"
+GRAPH = "cricket"
 
 
 # ---------------------------------------------------------------------------
