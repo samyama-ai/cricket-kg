@@ -6,6 +6,21 @@
 > This repo holds the loader and source-data specifics for the KG.
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="License"></a>
+<a href="https://huggingface.co/datasets/VaidhyaMegha/cricket-kg"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20dataset-VaidhyaMegha%2Fcricket--kg-yellow" alt="HuggingFace dataset"></a>
+
+**The built graph is published as a dataset** -- you do not have to run the ETL to get it:
+**[huggingface.co/datasets/VaidhyaMegha/cricket-kg](https://huggingface.co/datasets/VaidhyaMegha/cricket-kg)**
+(`v1.0`, CC-BY-4.0). 36,619 nodes and 1,392,017 edges as node/edge CSVs, plus
+`cricket.sgsnap` for a one-step engine import. This repository holds the **code**; that
+dataset holds the **data**; the snapshot is the **graph**.
+
+```python
+from datasets import load_dataset
+batting = load_dataset("VaidhyaMegha/cricket-kg", "edge_batted_in", revision="v1.0")
+```
+
+> **Using the data means crediting Cricsheet.** CC-BY-4.0 makes attribution a condition of
+> use, and it travels to anything you redistribute or build on top of.
 
 ---
 
@@ -91,6 +106,7 @@ See the full **[100-query showcase](docs/100-queries.md)** -- from single-table 
 
 | | |
 |---|---|
+| **Published dataset** | **[huggingface.co/datasets/VaidhyaMegha/cricket-kg](https://huggingface.co/datasets/VaidhyaMegha/cricket-kg)** |
 | Samyama Graph | [github.com/samyama-ai/samyama-graph](https://github.com/samyama-ai/samyama-graph) |
 | The Book | [samyama-ai.github.io/samyama-graph-book](https://samyama-ai.github.io/samyama-graph-book/) |
 | Cricsheet | [cricsheet.org](https://cricsheet.org/) |
@@ -98,4 +114,13 @@ See the full **[100-query showcase](docs/100-queries.md)** -- from single-table 
 
 ## License
 
-Apache 2.0. Data from Cricsheet.org is CC-BY-4.0.
+Apache 2.0 covers the **code** in this repository. The **data** is a separate matter: it comes
+from [Cricsheet.org](https://cricsheet.org/) under
+**[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)**, and CC-BY-4.0 -- not Apache
+2.0 -- governs the [published dataset](https://huggingface.co/datasets/VaidhyaMegha/cricket-kg)
+and any redistribution of it.
+
+**Attribution is required.** Anything built on this data must credit Cricsheet:
+
+> Source data from [Cricsheet.org](https://cricsheet.org/), licensed
+> [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
